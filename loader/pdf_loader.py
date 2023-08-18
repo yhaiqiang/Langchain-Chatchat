@@ -36,7 +36,7 @@ class MyPDFPlumberParser(PDFPlumberParser):
             else:
                 if flag and not self.is_page_number(text_block, page_height):
                     process_table = self.process_table(page)
-                    non_table_text.append(process_table)
+                    non_table_text.append("===表格开始==="+process_table+"===表格结束===")
                     flag = False
         return '\n'.join(non_table_text)
 
@@ -83,7 +83,7 @@ class MyPDFPlumberParser(PDFPlumberParser):
         if max_num == 2:
             new_header = []
             for n in range(max_num - 1):
-                new_header = [str(x) + str(y) if str(x)!=str(y) else str(x) for x, y in zip(df.iloc[n].tolist(), df.iloc[n + 1].tolist())]
+                new_header = [str(y)+str(x) if str(x)!=str(y) else str(x) for x, y in zip(df.iloc[n].tolist(), df.iloc[n + 1].tolist())]
             df.columns = new_header
             df = df[max_num:]
         elif max_num == 1:
@@ -101,11 +101,11 @@ class MyPDFPlumberParser(PDFPlumberParser):
         # 结构化数据归为非结构化数据
         for index, row in df.iterrows():
             row = [re.sub('\s+|\n+', '', x) for x in row]
-            tmp={}
+            tmp=[]
             for i in range(len(header)):
                 if row[i]=="-":
                     row[i]="无"
-                tmp[header[i]]=row[i]
+                tmp.append(header[i]+row[i])
             result.append(tmp)
         # result_merge = "。".join(result)
         result_str = str(result).replace("'", "").replace(":", "")

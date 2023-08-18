@@ -105,8 +105,8 @@ class KnowledgeFile:
                 text_splitter_module = importlib.import_module('langchain.text_splitter')
                 TextSplitter = getattr(text_splitter_module, "SpacyTextSplitter")
                 text_splitter = TextSplitter(
-                    #pipeline="zh_core_web_sm",
-                    pipeline="sentencizer",
+                    pipeline="zh_core_web_sm",
+                    # pipeline="sentencizer",
                     chunk_size=CHUNK_SIZE,
                     chunk_overlap=OVERLAP_SIZE,
                 )
