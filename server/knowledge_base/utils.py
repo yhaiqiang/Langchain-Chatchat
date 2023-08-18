@@ -1,5 +1,6 @@
 import os
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
+from loader.pdf_loader import MyPDFPlumberLoader
 from configs.model_config import (
     embedding_model_dict,
     KB_ROOT_PATH,
@@ -48,10 +49,11 @@ def load_embeddings(model: str, device: str):
 
 LOADER_DICT = {"UnstructuredFileLoader": ['.eml', '.html', '.json', '.md', '.msg', '.rst',
                                           '.rtf', '.txt', '.xml',
-                                          '.doc', '.docx', '.epub', '.odt', '.pdf',
+                                          '.doc', '.docx', '.epub', '.odt',
                                           '.ppt', '.pptx', '.tsv'],  # '.pdf', '.xlsx', '.csv'
                "CSVLoader": [".csv"],
-               "PyPDFLoader": [".pdf"],
+               # "PyPDFLoader": [".pdf"],
+               "MyPDFPlumberLoader": [".pdf"],
                }
 SUPPORTED_EXTS = [ext for sublist in LOADER_DICT.values() for ext in sublist]
 
@@ -78,6 +80,7 @@ class KnowledgeFile:
 
         # TODO: 增加依据文件格式匹配text_splitter
         self.text_splitter_name = None
+        # self.text_splitter_name = 'RecursiveCharacterTextSplitter'
 
     def file2text(self, using_zh_title_enhance=ZH_TITLE_ENHANCE):
         print(self.document_loader_name)
@@ -86,8 +89,12 @@ class KnowledgeFile:
             DocumentLoader = getattr(document_loaders_module, self.document_loader_name)
         except Exception as e:
             print(e)
-            document_loaders_module = importlib.import_module('langchain.document_loaders')
-            DocumentLoader = getattr(document_loaders_module, "UnstructuredFileLoader")
+            try:
+                DocumentLoader = MyPDFPlumberLoader
+            except:
+                print(e)
+                document_loaders_module = importlib.import_module('langchain.document_loaders')
+                DocumentLoader = getattr(document_loaders_module, "UnstructuredFileLoader")
         if self.document_loader_name == "UnstructuredFileLoader":
             loader = DocumentLoader(self.filepath, autodetect_encoding=True)
         else:
@@ -98,7 +105,8 @@ class KnowledgeFile:
                 text_splitter_module = importlib.import_module('langchain.text_splitter')
                 TextSplitter = getattr(text_splitter_module, "SpacyTextSplitter")
                 text_splitter = TextSplitter(
-                    pipeline="zh_core_web_sm",
+                    #pipeline="zh_core_web_sm",
+                    pipeline="sentencizer",
                     chunk_size=CHUNK_SIZE,
                     chunk_overlap=OVERLAP_SIZE,
                 )

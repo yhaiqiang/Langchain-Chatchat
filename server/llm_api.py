@@ -205,7 +205,7 @@ if __name__ == "__main__":
             target=run_controller,
             name=f"controller({os.getpid()})",
             args=(queue,),
-            daemon=True,
+            daemon=False,
         )
         controller_process.start()
 
@@ -223,7 +223,7 @@ if __name__ == "__main__":
             target=run_openai_api,
             name=f"openai_api({os.getpid()})",
             args=(queue,),
-            daemon=True,
+            daemon=False,
         )
         openai_api_process.start()
 
