@@ -47,7 +47,8 @@ class ApiRequest:
     def __init__(
         self,
         base_url: str = "http://127.0.0.1:7861",
-        timeout: float = 60.0,
+        timeout: float = 1200,
+        # timeout: float = 60.0,
         no_remote_api: bool = False,   # call api view function directly
     ):
         self.base_url = base_url

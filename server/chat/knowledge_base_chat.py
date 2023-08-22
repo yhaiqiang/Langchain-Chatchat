@@ -54,6 +54,12 @@ def knowledge_base_chat(query: str = Body(..., description="用户输入", examp
             model_name=LLM_MODEL
         )
         docs = kb.search_docs(query, top_k)
+        if len(docs)==0:
+            yield json.dumps({"answer": "未找到相关信息",
+                              "docs": []},
+                             ensure_ascii=False)
+            return
+
         context = "\n".join([doc.page_content for doc in docs])
 
         chat_prompt = ChatPromptTemplate.from_messages(
