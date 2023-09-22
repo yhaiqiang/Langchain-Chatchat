@@ -10,7 +10,7 @@ from configs.model_config import (
 )
 from functools import lru_cache
 import importlib
-from text_splitter import zh_title_enhance
+from text_splitter import zh_title_enhance, ChineseTextSplitter
 
 
 def validate_kb_name(knowledge_base_id: str) -> bool:
@@ -52,8 +52,8 @@ LOADER_DICT = {"UnstructuredFileLoader": ['.eml', '.html', '.json', '.md', '.msg
                                           '.doc', '.docx', '.epub', '.odt',
                                           '.ppt', '.pptx', '.tsv'],  # '.pdf', '.xlsx', '.csv'
                "CSVLoader": [".csv"],
-               # "PyPDFLoader": [".pdf"],
-               "MyPDFPlumberLoader": [".pdf"],
+               "PyPDFLoader": [".pdf"],
+               # "MyPDFPlumberLoader": [".pdf"],
                }
 SUPPORTED_EXTS = [ext for sublist in LOADER_DICT.values() for ext in sublist]
 
@@ -80,6 +80,7 @@ class KnowledgeFile:
 
         # TODO: 增加依据文件格式匹配text_splitter
         self.text_splitter_name = None
+        # self.text_splitter_name = 'ChineseTextSplitter'
         # self.text_splitter_name = 'RecursiveCharacterTextSplitter'
 
     def file2text(self, using_zh_title_enhance=ZH_TITLE_ENHANCE):
@@ -111,11 +112,15 @@ class KnowledgeFile:
                     chunk_overlap=OVERLAP_SIZE,
                 )
             else:
-                text_splitter_module = importlib.import_module('langchain.text_splitter')
-                TextSplitter = getattr(text_splitter_module, self.text_splitter_name)
-                text_splitter = TextSplitter(
-                    chunk_size=CHUNK_SIZE,
-                    chunk_overlap=OVERLAP_SIZE)
+                try:
+                    text_splitter = ChineseTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=OVERLAP_SIZE)
+                    print(text_splitter)
+                except:
+                    text_splitter_module = importlib.import_module('langchain.text_splitter')
+                    TextSplitter = getattr(text_splitter_module, self.text_splitter_name)
+                    text_splitter = TextSplitter(
+                        chunk_size=CHUNK_SIZE,
+                        chunk_overlap=OVERLAP_SIZE)
         except Exception as e:
             print(e)
             text_splitter_module = importlib.import_module('langchain.text_splitter')

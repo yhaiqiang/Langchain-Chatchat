@@ -14,7 +14,7 @@ from langchain.document_loaders.blob_loaders import Blob
 from langchain.schema import Document
 from langchain.text_splitter import CharacterTextSplitter,RecursiveCharacterTextSplitter,SpacyTextSplitter
 import pandas as pd
-
+from tabulate import tabulate
 
 
 class MyPDFPlumberParser(PDFPlumberParser):
@@ -24,21 +24,22 @@ class MyPDFPlumberParser(PDFPlumberParser):
         threshold = 0.9 * page_height  # 调整此阈值以适应具体情况
         return text_block['top'] > threshold
 
-    def extract_non_table_text(self, page, table_region):
-        non_table_text = []
+    def extract_words_and_table(self, page, table_region):
+        page_content = []
         page_height = page.height
         flag = True
         for text_block in page.extract_words():
             text_coordinates = text_block['x0'], text_block['top'], text_block['x1'], text_block['bottom']
             if not self.is_inside_table(table_region, text_coordinates) and not self.is_page_number(text_block, page_height):  # 自定义函数判断文本块是否在表格区域内
-                non_table_text.append(text_block['text'])
+                page_content.append(text_block['text'])
                 flag = True
             else:
                 if flag and not self.is_page_number(text_block, page_height):
                     process_table = self.process_table(page)
-                    non_table_text.append("===表格开始==="+process_table+"===表格结束===")
+                    # page_content.append("===表格开始==="+process_table+"===表格结束===")
+                    page_content.append(process_table)
                     flag = False
-        return '\n'.join(non_table_text)
+        return '\n'.join(page_content)
 
     def is_inside_table(self, table_coordinates, text_coordinates):
         text_x0, text_top, text_x1, text_bottom = text_coordinates
@@ -127,9 +128,15 @@ class MyPDFPlumberParser(PDFPlumberParser):
                     for i in range(len(row) - 1):
                         if row[i] is not None and row[i + 1] is None:
                             row[i + 1] = row[i]
-            result = self.convert_table(df)
+            # result = self.convert_table(df)
+            result = self.convert_table_to_markdown(df)
             result_list.append(result)
         return "\n\n".join(result_list)
+
+    def convert_table_to_markdown(self,df):
+        markdown_table = tabulate(df, headers='keys', tablefmt='pipe',showindex=False)
+        print(tabulate)
+        return markdown_table
 
     def extract_content(self, page):
         table = page.debug_tablefinder()
@@ -138,8 +145,8 @@ class MyPDFPlumberParser(PDFPlumberParser):
         table_x2, table_y2 = table_coordinates[2], table_coordinates[3]
         table_region = (table_x1, table_y1, table_x2, table_y2)
         # 表格区域坐标，需要自行设定
-        non_table_text = self.extract_non_table_text(page, table_region)
-        return non_table_text
+        content = self.extract_words_and_table(page, table_region)
+        return content
 
 
     def lazy_parse(self, blob: Blob):
@@ -157,7 +164,6 @@ class MyPDFPlumberParser(PDFPlumberParser):
                 metadata = dict({"source": blob.source, "file_path": blob.source, "page": page.page_number,"total_pages": len(doc.pages)},**{k: doc.metadata[k] for k in doc.metadata if type(doc.metadata[k]) in [str, int]})
                 doc_object=Document(page_content=page_content, metadata=metadata)
                 page_doc.append(doc_object)
-                # print(doc_object)
                 print(f"--------------分页线{i+1}-------------")
             yield from page_doc
 
@@ -181,6 +187,8 @@ class MyPDFPlumberParser(PDFPlumberParser):
             #     for page in doc.pages[:1]
             # ]
 
+
+
 class MyPDFPlumberLoader(PDFPlumberLoader):
         """ """
         def load(self):
@@ -188,10 +196,7 @@ class MyPDFPlumberLoader(PDFPlumberLoader):
                 blob = Blob.from_path(self.file_path)
                 return parser.parse(blob)
 
-# if __name__ == '__main__':
-    # parse = MyPDFPlumberLoader()
-    # res=parse.load()
-    # with pdfplumber.open(r"/root/Projects/Langchain-Chatchat/knowledge_base/1/content/《康佳集团差旅管理办法》2019年.pdf") as pdf:
-    #     for page in pdf.pages[:1]:
-    #         content=parse.lazy_parse(blob)
-    #         print(content)
+if __name__ == '__main__':
+    parse = MyPDFPlumberLoader(file_path=r"/root/Projects/Langchain-Chatchat/knowledge_base/1/content/《康佳集团差旅管理办法》2019年.pdf")
+    res=parse.load()
+    print(res)

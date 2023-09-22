@@ -47,8 +47,8 @@ class ApiRequest:
     def __init__(
         self,
         base_url: str = "http://127.0.0.1:7861",
-        timeout: float = 1200,
-        # timeout: float = 60.0,
+        # timeout: float = 1200,
+        timeout: float = 60.0,
         no_remote_api: bool = False,   # call api view function directly
     ):
         self.base_url = base_url
@@ -224,8 +224,8 @@ class ApiRequest:
         messages: List[Dict],
         stream: bool = True,
         model: str = LLM_MODEL,
-        temperature: float = 0.1,
-        max_tokens: int = 1024, # todo:根据message内容自动计算max_tokens
+        temperature: float = 0.85,
+        max_tokens: int = 32000, # todo:根据message内容自动计算max_tokens
         no_remote_api: bool = None,
         **kwargs: Any,
     ):
