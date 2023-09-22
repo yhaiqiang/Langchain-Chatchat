@@ -3,53 +3,16 @@ import shutil
 
 from configs.model_config import (
     KB_ROOT_PATH,
-    CACHED_VS_NUM,
-    EMBEDDING_MODEL,
-    EMBEDDING_DEVICE,
-    SCORE_THRESHOLD
+    SCORE_THRESHOLD,
+    logger, log_verbose,
 )
 from server.knowledge_base.kb_service.base import KBService, SupportedVSType
-from functools import lru_cache
-from server.knowledge_base.utils import get_vs_path, load_embeddings, KnowledgeFile
-from langchain.vectorstores import FAISS
+from server.knowledge_base.kb_cache.faiss_cache import kb_faiss_pool, ThreadSafeFaiss
+from server.knowledge_base.utils import KnowledgeFile
 from langchain.embeddings.base import Embeddings
-from langchain.embeddings.huggingface import HuggingFaceEmbeddings
-from typing import List
+from typing import List, Dict, Optional
 from langchain.docstore.document import Document
 from server.utils import torch_gc
-
-
-# make HuggingFaceEmbeddings hashable
-def _embeddings_hash(self):
-    return hash(self.model_name)
-
-
-HuggingFaceEmbeddings.__hash__ = _embeddings_hash
-
-_VECTOR_STORE_TICKS = {}
-
-
-@lru_cache(CACHED_VS_NUM)
-def load_vector_store(
-        knowledge_base_name: str,
-        embed_model: str = EMBEDDING_MODEL,
-        embed_device: str = EMBEDDING_DEVICE,
-        embeddings: Embeddings = None,
-        tick: int = 0,  # tick will be changed by upload_doc etc. and make cache refreshed.
-):
-    print(f"loading vector store in '{knowledge_base_name}'.")
-    vs_path = get_vs_path(knowledge_base_name)
-    if embeddings is None:
-        embeddings = load_embeddings(embed_model, embed_device)
-    search_index = FAISS.load_local(vs_path, embeddings, normalize_L2=True)
-    return search_index
-
-
-def refresh_vs_cache(kb_name: str):
-    """
-    make vector store cache refreshed when next loading
-    """
-    _VECTOR_STORE_TICKS[kb_name] = _VECTOR_STORE_TICKS.get(kb_name, 0) + 1
 
 
 class FaissKBService(KBService):
@@ -59,69 +22,71 @@ class FaissKBService(KBService):
     def vs_type(self) -> str:
         return SupportedVSType.FAISS
 
-    @staticmethod
-    def get_vs_path(knowledge_base_name: str):
-        return os.path.join(FaissKBService.get_kb_path(knowledge_base_name), "vector_store")
+    def get_vs_path(self):
+        return os.path.join(self.get_kb_path(), "vector_store")
 
-    @staticmethod
-    def get_kb_path(knowledge_base_name: str):
-        return os.path.join(KB_ROOT_PATH, knowledge_base_name)
+    def get_kb_path(self):
+        return os.path.join(KB_ROOT_PATH, self.kb_name)
+
+    def load_vector_store(self) -> ThreadSafeFaiss:
+        return kb_faiss_pool.load_vector_store(kb_name=self.kb_name, embed_model=self.embed_model)
+
+    def save_vector_store(self):
+        self.load_vector_store().save(self.vs_path)
+
+    def get_doc_by_id(self, id: str) -> Optional[Document]:
+        with self.load_vector_store().acquire() as vs:
+            return vs.docstore._dict.get(id)
 
     def do_init(self):
-        self.kb_path = FaissKBService.get_kb_path(self.kb_name)
-        self.vs_path = FaissKBService.get_vs_path(self.kb_name)
+        self.kb_path = self.get_kb_path()
+        self.vs_path = self.get_vs_path()
 
     def do_create_kb(self):
         if not os.path.exists(self.vs_path):
             os.makedirs(self.vs_path)
+        self.load_vector_store()
 
     def do_drop_kb(self):
+        self.clear_vs()
         shutil.rmtree(self.kb_path)
 
     def do_search(self,
                   query: str,
                   top_k: int,
-                  embeddings: Embeddings,
+                  score_threshold: float = SCORE_THRESHOLD,
+                  embeddings: Embeddings = None,
                   ) -> List[Document]:
-        search_index = load_vector_store(self.kb_name,
-                                         embeddings=embeddings,
-                                         tick=_VECTOR_STORE_TICKS.get(self.kb_name))
-        docs = search_index.similarity_search(query, k=top_k, score_threshold=SCORE_THRESHOLD)
+        with self.load_vector_store().acquire() as vs:
+            docs = vs.similarity_search_with_score(query, k=top_k, score_threshold=score_threshold)
         return docs
 
     def do_add_doc(self,
                    docs: List[Document],
-                   embeddings: Embeddings,
-                   ):
-        if os.path.exists(self.vs_path) and "index.faiss" in os.listdir(self.vs_path):
-            vector_store = FAISS.load_local(self.vs_path, embeddings, normalize_L2=True)
-            vector_store.add_documents(docs)
-            torch_gc()
-        else:
-            if not os.path.exists(self.vs_path):
-                os.makedirs(self.vs_path)
-            vector_store = FAISS.from_documents(
-                docs, embeddings, normalize_L2=True)  # docs 为Document列表
-            torch_gc()
-        vector_store.save_local(self.vs_path)
-        refresh_vs_cache(self.kb_name)
+                   **kwargs,
+                   ) -> List[Dict]:
+        with self.load_vector_store().acquire() as vs:
+            ids = vs.add_documents(docs)
+            if not kwargs.get("not_refresh_vs_cache"):
+                vs.save_local(self.vs_path)
+        doc_infos = [{"id": id, "metadata": doc.metadata} for id, doc in zip(ids, docs)]
+        torch_gc()
+        return doc_infos
 
     def do_delete_doc(self,
-                      kb_file: KnowledgeFile):
-        embeddings = self._load_embeddings()
-        if os.path.exists(self.vs_path) and "index.faiss" in os.listdir(self.vs_path):
-            vector_store = FAISS.load_local(self.vs_path, embeddings, normalize_L2=True)
-            ids = [k for k, v in vector_store.docstore._dict.items() if v.metadata["source"] == kb_file.filepath]
-            if len(ids) == 0:
-                return None
-            vector_store.delete(ids)
-            vector_store.save_local(self.vs_path)
-            refresh_vs_cache(self.kb_name)
-            return True
-        else:
-            return None
+                      kb_file: KnowledgeFile,
+                      **kwargs):
+        with self.load_vector_store().acquire() as vs:
+            ids = [k for k, v in vs.docstore._dict.items() if v.metadata.get("source") == kb_file.filepath]
+            if len(ids) > 0:
+                vs.delete(ids)
+            if not kwargs.get("not_refresh_vs_cache"):
+                vs.save_local(self.vs_path)
+        return ids
 
     def do_clear_vs(self):
+        with kb_faiss_pool.atomic:
+            kb_faiss_pool.pop(self.kb_name)
         shutil.rmtree(self.vs_path)
         os.makedirs(self.vs_path)
 
@@ -134,3 +99,11 @@ class FaissKBService(KBService):
             return "in_folder"
         else:
             return False
+
+
+if __name__ == '__main__':
+    faissService = FaissKBService("test")
+    faissService.add_doc(KnowledgeFile("README.md", "test"))
+    faissService.delete_doc(KnowledgeFile("README.md", "test"))
+    faissService.do_drop_kb()
+    print(faissService.search_docs("如何启动api服务"))

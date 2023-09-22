@@ -1,20 +1,23 @@
 import pydantic
 from pydantic import BaseModel
 from typing import List
-import torch
-from fastapi_offline import FastAPIOffline
-import fastapi_offline
+from fastapi import FastAPI
 from pathlib import Path
 import asyncio
+from configs.model_config import LLM_MODEL, llm_model_dict, LLM_DEVICE, EMBEDDING_DEVICE, logger, log_verbose
+from configs.server_config import FSCHAT_MODEL_WORKERS
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Literal, Optional, Callable, Generator, Dict, Any
 
 
-# patch fastapi_offline to use local static assests
-fastapi_offline.core._STATIC_PATH = Path(__file__).parent / "static"
+thread_pool = ThreadPoolExecutor(os.cpu_count())
 
 
 class BaseResponse(BaseModel):
-    code: int = pydantic.Field(200, description="HTTP status code")
-    msg: str = pydantic.Field("success", description="HTTP status message")
+    code: int = pydantic.Field(200, description="API status code")
+    msg: str = pydantic.Field("success", description="API status message")
+    data: Any = pydantic.Field(None, description="API data")
 
     class Config:
         schema_extra = {
@@ -72,6 +75,7 @@ class ChatMessage(BaseModel):
         }
 
 def torch_gc():
+    import torch
     if torch.cuda.is_available():
         # with torch.cuda.device(DEVICE):
         torch.cuda.empty_cache()
@@ -81,9 +85,10 @@ def torch_gc():
             from torch.mps import empty_cache
             empty_cache()
         except Exception as e:
-            print(e)
-            print("如果您使用的是 macOS 建议将 pytorch 版本升级至 2.0.0 或更高版本，以支持及时清理 torch 产生的内存占用。")
-
+            msg=("如果您使用的是 macOS 建议将 pytorch 版本升级至 2.0.0 或更高版本，"
+                 "以支持及时清理 torch 产生的内存占用。")
+            logger.error(f'{e.__class__.__name__}: {msg}',
+                         exc_info=e if log_verbose else None)
 
 def run_async(cor):
     '''
@@ -112,3 +117,219 @@ def iter_over_async(ait, loop):
         if done:
             break
         yield obj
+
+
+def MakeFastAPIOffline(
+    app: FastAPI,
+    static_dir = Path(__file__).parent / "static",
+    static_url = "/static-offline-docs",
+    docs_url: Optional[str] = "/docs",
+    redoc_url: Optional[str] = "/redoc",
+) -> None:
+    """patch the FastAPI obj that doesn't rely on CDN for the documentation page"""
+    from fastapi import Request
+    from fastapi.openapi.docs import (
+        get_redoc_html,
+        get_swagger_ui_html,
+        get_swagger_ui_oauth2_redirect_html,
+    )
+    from fastapi.staticfiles import StaticFiles
+    from starlette.responses import HTMLResponse
+
+    openapi_url = app.openapi_url
+    swagger_ui_oauth2_redirect_url = app.swagger_ui_oauth2_redirect_url
+
+    def remove_route(url: str) -> None:
+        '''
+        remove original route from app
+        '''
+        index = None
+        for i, r in enumerate(app.routes):
+            if r.path.lower() == url.lower():
+                index = i
+                break
+        if isinstance(index, int):
+            app.routes.pop(i)
+
+    # Set up static file mount
+    app.mount(
+        static_url,
+        StaticFiles(directory=Path(static_dir).as_posix()),
+        name="static-offline-docs",
+    )
+
+    if docs_url is not None:
+        remove_route(docs_url)
+        remove_route(swagger_ui_oauth2_redirect_url)
+
+        # Define the doc and redoc pages, pointing at the right files
+        @app.get(docs_url, include_in_schema=False)
+        async def custom_swagger_ui_html(request: Request) -> HTMLResponse:
+            root = request.scope.get("root_path")
+            favicon = f"{root}{static_url}/favicon.png"
+            return get_swagger_ui_html(
+                openapi_url=f"{root}{openapi_url}",
+                title=app.title + " - Swagger UI",
+                oauth2_redirect_url=swagger_ui_oauth2_redirect_url,
+                swagger_js_url=f"{root}{static_url}/swagger-ui-bundle.js",
+                swagger_css_url=f"{root}{static_url}/swagger-ui.css",
+                swagger_favicon_url=favicon,
+            )
+
+        @app.get(swagger_ui_oauth2_redirect_url, include_in_schema=False)
+        async def swagger_ui_redirect() -> HTMLResponse:
+            return get_swagger_ui_oauth2_redirect_html()
+
+    if redoc_url is not None:
+        remove_route(redoc_url)
+
+        @app.get(redoc_url, include_in_schema=False)
+        async def redoc_html(request: Request) -> HTMLResponse:
+            root = request.scope.get("root_path")
+            favicon = f"{root}{static_url}/favicon.png"
+
+            return get_redoc_html(
+                openapi_url=f"{root}{openapi_url}",
+                title=app.title + " - ReDoc",
+                redoc_js_url=f"{root}{static_url}/redoc.standalone.js",
+                with_google_fonts=False,
+                redoc_favicon_url=favicon,
+            )
+
+
+# 从server_config中获取服务信息
+def get_model_worker_config(model_name: str = LLM_MODEL) -> dict:
+    '''
+    加载model worker的配置项。
+    优先级:FSCHAT_MODEL_WORKERS[model_name] > llm_model_dict[model_name] > FSCHAT_MODEL_WORKERS["default"]
+    '''
+    from configs.server_config import FSCHAT_MODEL_WORKERS
+    from server import model_workers
+    from configs.model_config import llm_model_dict
+
+    config = FSCHAT_MODEL_WORKERS.get("default", {}).copy()
+    config.update(llm_model_dict.get(model_name, {}))
+    config.update(FSCHAT_MODEL_WORKERS.get(model_name, {}))
+
+    # 如果没有设置local_model_path，则认为是在线模型API
+    if not config.get("local_model_path"):
+        config["online_api"] = True
+        if provider := config.get("provider"):
+            try:
+                config["worker_class"] = getattr(model_workers, provider)
+            except Exception as e:
+                msg = f"在线模型 ‘{model_name}’ 的provider没有正确配置"
+                logger.error(f'{e.__class__.__name__}: {msg}',
+                             exc_info=e if log_verbose else None)
+
+    config["device"] = llm_device(config.get("device") or LLM_DEVICE)
+    return config
+
+
+def get_all_model_worker_configs() -> dict:
+    result = {}
+    model_names = set(llm_model_dict.keys()) | set(FSCHAT_MODEL_WORKERS.keys())
+    for name in model_names:
+        if name != "default":
+            result[name] = get_model_worker_config(name)
+    return result
+
+
+def fschat_controller_address() -> str:
+    from configs.server_config import FSCHAT_CONTROLLER
+
+    host = FSCHAT_CONTROLLER["host"]
+    port = FSCHAT_CONTROLLER["port"]
+    return f"http://{host}:{port}"
+
+
+def fschat_model_worker_address(model_name: str = LLM_MODEL) -> str:
+    if model := get_model_worker_config(model_name):
+        host = model["host"]
+        port = model["port"]
+        return f"http://{host}:{port}"
+    return ""
+
+
+def fschat_openai_api_address() -> str:
+    from configs.server_config import FSCHAT_OPENAI_API
+
+    host = FSCHAT_OPENAI_API["host"]
+    port = FSCHAT_OPENAI_API["port"]
+    return f"http://{host}:{port}"
+
+
+def api_address() -> str:
+    from configs.server_config import API_SERVER
+
+    host = API_SERVER["host"]
+    port = API_SERVER["port"]
+    return f"http://{host}:{port}"
+
+
+def webui_address() -> str:
+    from configs.server_config import WEBUI_SERVER
+
+    host = WEBUI_SERVER["host"]
+    port = WEBUI_SERVER["port"]
+    return f"http://{host}:{port}"
+
+
+def set_httpx_timeout(timeout: float = None):
+    '''
+    设置httpx默认timeout。
+    httpx默认timeout是5秒，在请求LLM回答时不够用。
+    '''
+    import httpx
+    from configs.server_config import HTTPX_DEFAULT_TIMEOUT
+
+    timeout = timeout or HTTPX_DEFAULT_TIMEOUT
+    httpx._config.DEFAULT_TIMEOUT_CONFIG.connect = timeout
+    httpx._config.DEFAULT_TIMEOUT_CONFIG.read = timeout
+    httpx._config.DEFAULT_TIMEOUT_CONFIG.write = timeout
+
+
+# 自动检查torch可用的设备。分布式部署时，不运行LLM的机器上可以不装torch
+def detect_device() -> Literal["cuda", "mps", "cpu"]:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+    except:
+        pass
+    return "cpu"
+
+
+def llm_device(device: str = LLM_DEVICE) -> Literal["cuda", "mps", "cpu"]:
+    if device not in ["cuda", "mps", "cpu"]:
+        device = detect_device()
+    return device
+
+
+def embedding_device(device: str = EMBEDDING_DEVICE) -> Literal["cuda", "mps", "cpu"]:
+    if device not in ["cuda", "mps", "cpu"]:
+        device = detect_device()
+    return device
+
+
+def run_in_thread_pool(
+    func: Callable,
+    params: List[Dict] = [],
+    pool: ThreadPoolExecutor = None,
+) -> Generator:
+    '''
+    在线程池中批量运行任务，并将运行结果以生成器的形式返回。
+    请确保任务中的所有操作是线程安全的，任务函数请全部使用关键字参数。
+    '''
+    tasks = []
+    pool = pool or thread_pool
+
+    for kwargs in params:
+        thread = pool.submit(func, **kwargs)
+        tasks.append(thread)
+
+    for obj in as_completed(tasks):
+        yield obj.result()
+
