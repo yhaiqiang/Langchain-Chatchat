@@ -1,3 +1,6 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
+
 import asyncio
 import multiprocessing as mp
 import os

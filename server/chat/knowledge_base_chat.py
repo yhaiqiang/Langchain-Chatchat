@@ -1,3 +1,5 @@
+import re
+
 from fastapi import Body, Request
 from fastapi.responses import StreamingResponse
 from configs.model_config import (llm_model_dict, LLM_MODEL, PROMPT_TEMPLATE,
@@ -62,8 +64,16 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
             openai_proxy=llm_model_dict[model_name].get("openai_proxy")
         )
         docs = search_docs(query, knowledge_base_name, top_k, score_threshold)
-        context = "\n".join([doc.page_content for doc in docs])
-
+        docs_filter=[]
+        for doc in docs:
+            product_name=re.search("([0-9a-zA-Z]+)",query)
+            if product_name:
+                product_name=product_name.group(0)
+                if product_name.lower() in doc.page_content.lower():
+                    docs_filter.append(doc)
+        context = "\n".join([doc.page_content for doc in docs_filter])
+        docs=docs_filter
+        print("###############"+context+"##############")
         input_msg = History(role="user", content=PROMPT_TEMPLATE).to_msg_template(False)
         chat_prompt = ChatPromptTemplate.from_messages(
             [i.to_msg_template() for i in history] + [input_msg])

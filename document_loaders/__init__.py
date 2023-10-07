@@ -1,2 +1,2 @@
-from .mypdfloader import RapidOCRPDFLoader
+from .mypdfloader2 import RapidOCRPDFLoader
 from .myimgloader import RapidOCRLoader

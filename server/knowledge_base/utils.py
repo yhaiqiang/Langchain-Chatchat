@@ -186,7 +186,7 @@ def get_loader(loader_name: str, file_path_or_content: Union[str, bytes, io.Stri
     elif loader_name == "UnstructuredHTMLLoader":
         loader = DocumentLoader(file_path_or_content, mode="elements")
     else:
-        loader = DocumentLoader(file_path_or_content)
+        loader = DocumentLoader(file_path_or_content,mode="paged")
     return loader
 
 
@@ -321,7 +321,7 @@ class KnowledgeFile:
         self.splited_docs = docs
         return self.splited_docs
 
-    def file2text(
+    def file2text_raw(
         self,
         zh_title_enhance: bool = ZH_TITLE_ENHANCE,
         refresh: bool = False,
@@ -338,6 +338,27 @@ class KnowledgeFile:
                                                 chunk_overlap=chunk_overlap,
                                                 text_splitter=text_splitter)
         return self.splited_docs
+
+    def file2text(
+        self,
+        zh_title_enhance: bool = ZH_TITLE_ENHANCE,
+        refresh: bool = False,
+        chunk_size: int = CHUNK_SIZE,
+        chunk_overlap: int = OVERLAP_SIZE,
+        text_splitter: TextSplitter = None,
+    ):
+        # if self.splited_docs is None or refresh:
+
+            # self.splited_docs = self.docs2texts(docs=docs,
+            #                                     zh_title_enhance=zh_title_enhance,
+            #                                     refresh=refresh,
+            #                                     chunk_size=chunk_size,
+            #                                     chunk_overlap=chunk_overlap,
+            #                                     text_splitter=text_splitter)
+        docs = self.file2docs()
+        for x in docs:
+            x.page_content=x.page_content.replace("\n\n"," ")
+        return docs
 
     def file_exist(self):
         return os.path.isfile(self.filepath)
