@@ -8,13 +8,61 @@ from configs import LLM_MODEL, TEMPERATURE
 from server.utils import get_model_worker_config
 from typing import List, Dict
 
-chat_box = ChatBox(
+class MyChatBox(ChatBox):
+
+    def filter_history(
+        self,
+        history_len: int = None,
+        filter: Callable = None,
+        stop: Callable = None,
+        chat_name: str = None,
+    ) -> List:
+        '''
+        history_len: the length of conversation pairs
+        filter: custom filter fucntion with arguments (msg,) or (msg, index), return None if skipping msg. default filter returns all text/markdown content.
+        stop: custom function to stop filtering with arguments (history,) history is already filtered messages, return True if stop. default stop on history_len
+        '''
+        self.init_session()
+
+        def default_filter(msg, index=None):
+            '''
+            filter text messages only with the format {"role":role, "content":content}
+            '''
+            content = [x.content for x in msg["elements"] if x._output_method in ["markdown", "text"]]
+            return {
+                "role": msg["role"],
+                "content": "\n\n".join(content),
+            }
+
+        def default_stop(history):
+            if isinstance(history_len, int):
+                user_count = len([x for x in history if x["role"] == "user"])
+                return user_count >= history_len
+            else:
+                return False
+
+        if filter is None:
+            filter = default_filter
+
+        if stop is None:
+            stop = default_stop
+
+        result = []
+        history = self.other_history(chat_name)
+        for i, msg in enumerate(history[-1::-1]):
+            if stop(result):
+                break
+            filtered = filter(msg)
+            if filtered is not None:
+                result.insert(0, filtered)
+        return result
+
+chat_box = MyChatBox(
     assistant_avatar=os.path.join(
         "img",
         "chatchat_icon_blue_square_v2.png"
     )
 )
-
 
 def get_messages_history(history_len: int, content_in_expander: bool = False) -> List[Dict]:
     '''

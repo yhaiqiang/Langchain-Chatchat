@@ -1,3 +1,5 @@
+from pprint import pprint
+
 from fastapi import Body, Request
 import re
 from fastapi.responses import StreamingResponse
@@ -41,6 +43,7 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
         return BaseResponse(code=404, msg=f"未找到知识库 {knowledge_base_name}")
 
     history = [History.from_data(h) for h in history]
+    print(f"history:{history}")
 
     async def knowledge_base_chat_iterator(query: str,
                                            top_k: int,
@@ -56,25 +59,39 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
         )
         docs = search_docs(query, knowledge_base_name, top_k, score_threshold)
 
-        docs_filter = []
-        for doc in docs:
-            product_name = re.search("([0-9a-zA-Z]+)", query)
-            if product_name:
-                product_name = product_name.group(0)
-                if product_name.lower() in doc.page_content.lower():
-                    docs_filter.append(doc)
+        if "支不支持" in query:
+            query=query.replace("支不支持","支持还是不支持")
+
+        product_name=""
+        for h in history:
+            if h.role=="user":
+                matched=re.search("(43f3|43g6a)", h.content.lower())
+                if matched:
+                    product_name=matched.group(0)
+        if product_name:
+            query=f"电视产品型号为{product_name}，"+query
+
+
+        # docs_filter = []
+        # for doc in docs:
+        #     product_name = re.search("([0-9a-zA-Z]+)", query)
+        #     if product_name:
+        #         product_name = product_name.group(0)
+        #         if product_name.lower() in doc.page_content.lower():
+        #             docs_filter.append(doc)
+        # docs = docs_filter
 
         context = "\n".join([doc.page_content for doc in docs])
-
-        docs = docs_filter
-        print("###############" + context + "##############")
-
+        pprint(f"matched text: {context}")
         prompt_template = get_prompt_template(prompt_name)
         input_msg = History(role="user", content=prompt_template).to_msg_template(False)
         chat_prompt = ChatPromptTemplate.from_messages(
             [i.to_msg_template() for i in history] + [input_msg])
 
         chain = LLMChain(prompt=chat_prompt, llm=model)
+
+        print("**********chain***********:")
+        print(chain)
 
         # Begin a task that runs in the background.
         task = asyncio.create_task(wrap_done(

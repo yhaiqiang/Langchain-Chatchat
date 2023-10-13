@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="2"
+os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3,4,5,6,7"
 
 import asyncio
 import multiprocessing as mp
@@ -123,7 +123,7 @@ def create_model_worker_app(log_level: str = "INFO", **kwargs) -> FastAPI:
             args.conv_template = None
             args.limit_worker_concurrency = 5
             args.no_register = False
-            args.num_gpus = 1 # vllm worker的切分是tensor并行，这里填写显卡的数量
+            args.num_gpus = 4 # vllm worker的切分是tensor并行，这里填写显卡的数量
             args.engine_use_ray = False
             args.disable_log_requests = False
             if args.model_path:
@@ -153,9 +153,9 @@ def create_model_worker_app(log_level: str = "INFO", **kwargs) -> FastAPI:
 
         else:
             from fastchat.serve.model_worker import app, GptqConfig, AWQConfig, ModelWorker
-            args.gpus = "0" # GPU的编号,如果有多个GPU，可以设置为"0,1,2,3"
-            args.max_gpu_memory = "20GiB"
-            args.num_gpus = 1  # model worker的切分是model并行，这里填写显卡的数量
+            args.gpus = "0,1,2,3,4,5,6,7" # GPU的编号,如果有多个GPU，可以设置为"0,1,2,3"
+            args.max_gpu_memory = "22GiB"
+            args.num_gpus = 4  # model worker的切分是model并行，这里填写显卡的数量
 
             args.load_8bit = False
             args.cpu_offloading = None

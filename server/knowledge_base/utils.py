@@ -1,6 +1,4 @@
 import os
-from langchain.embeddings.huggingface import HuggingFaceEmbeddings
-from loader.pdf_loader import MyPDFPlumberLoader
 from transformers import AutoTokenizer
 
 from configs import (
@@ -75,13 +73,13 @@ LOADER_DICT = {"UnstructuredHTMLLoader": ['.html'],
                "UnstructuredMarkdownLoader": ['.md'],
                "CustomJSONLoader": [".json"],
                "CSVLoader": [".csv"],
-               "RapidOCRPDFLoader": [".pdf"],
+               # "RapidOCRPDFLoader": [".pdf"],
                "RapidOCRLoader": ['.png', '.jpg', '.jpeg', '.bmp'],
                "UnstructuredFileLoader": ['.eml', '.msg', '.rst',
                                           '.rtf', '.txt', '.xml',
                                           '.docx', '.epub', '.odt',
                                           '.ppt', '.pptx', '.tsv'],
-                # "MyPDFPlumberLoader": [".pdf"],
+                "MyPDFPlumberLoader": [".pdf"],
                }
 SUPPORTED_EXTS = [ext for sublist in LOADER_DICT.values() for ext in sublist]
 
@@ -154,7 +152,7 @@ def get_loader(loader_name: str, file_path_or_content: Union[str, bytes, io.Stri
     根据loader_name和文件路径或内容返回文档加载器。
     '''
     try:
-        if loader_name in ["RapidOCRPDFLoader", "RapidOCRLoader"]:
+        if loader_name in ["RapidOCRPDFLoader", "RapidOCRLoader","MyPDFPlumberLoader"]:
             document_loaders_module = importlib.import_module('document_loaders')
         else:
             document_loaders_module = importlib.import_module('langchain.document_loaders')
@@ -186,7 +184,7 @@ def get_loader(loader_name: str, file_path_or_content: Union[str, bytes, io.Stri
     elif loader_name == "UnstructuredHTMLLoader":
         loader = DocumentLoader(file_path_or_content, mode="elements")
     else:
-        loader = DocumentLoader(file_path_or_content,mode="paged")
+        loader = DocumentLoader(file_path_or_content)
     return loader
 
 
@@ -234,10 +232,10 @@ def make_text_splitter(
                     text_splitter_dict[splitter_name]["tokenizer_name_or_path"] = \
                         config.get("model_path")
 
-                if text_splitter_dict[splitter_name]["tokenizer_name_or_path"] == "gpt2":
+                if "gpt2" in text_splitter_dict[splitter_name]["tokenizer_name_or_path"]:
                     from transformers import GPT2TokenizerFast
                     from langchain.text_splitter import CharacterTextSplitter
-                    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+                    tokenizer = GPT2TokenizerFast.from_pretrained(text_splitter_dict[splitter_name]["tokenizer_name_or_path"])
                 else:  ## 字符长度加载
                     tokenizer = AutoTokenizer.from_pretrained(
                         text_splitter_dict[splitter_name]["tokenizer_name_or_path"],
@@ -323,7 +321,7 @@ class KnowledgeFile:
         self.splited_docs = docs
         return self.splited_docs
 
-    def file2text_raw(
+    def file2text(
         self,
         zh_title_enhance: bool = ZH_TITLE_ENHANCE,
         refresh: bool = False,
@@ -341,7 +339,7 @@ class KnowledgeFile:
                                                 text_splitter=text_splitter)
         return self.splited_docs
 
-    def file2text(
+    def file2text2(
         self,
         zh_title_enhance: bool = ZH_TITLE_ENHANCE,
         refresh: bool = False,
@@ -349,14 +347,6 @@ class KnowledgeFile:
         chunk_overlap: int = OVERLAP_SIZE,
         text_splitter: TextSplitter = None,
     ):
-        # if self.splited_docs is None or refresh:
-
-            # self.splited_docs = self.docs2texts(docs=docs,
-            #                                     zh_title_enhance=zh_title_enhance,
-            #                                     refresh=refresh,
-            #                                     chunk_size=chunk_size,
-            #                                     chunk_overlap=chunk_overlap,
-            #                                     text_splitter=text_splitter)
         docs = self.file2docs()
         for x in docs:
             x.page_content=x.page_content.replace("\n\n"," ")
@@ -421,7 +411,7 @@ def files2docs_in_thread(
 if __name__ == "__main__":
     from pprint import pprint
 
-    kb_file = KnowledgeFile(filename="test.txt", knowledge_base_name="samples")
+    kb_file = KnowledgeFile(filename="产品规格说明书_多个.pdf", knowledge_base_name="寿军提供产品规格书_多个产品一份文档")
     # kb_file.text_splitter_name = "RecursiveCharacterTextSplitter"
     docs = kb_file.file2docs()
     pprint(docs[-1])
