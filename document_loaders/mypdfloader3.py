@@ -192,7 +192,8 @@ class MyPDFPlumberParser2(PDFPlumberParser):
         tables = page.extract_tables(table_settings={"vertical_strategy": "lines", "snap_tolerance": 10,"horizontal_strategy": "lines"})[0]
         tables=[list(filter(lambda x: x is not None and x != "",each)) for each in tables]
         tables_filter=[]
-        name = tables[0][0].split(" ")[0]
+        name = tables[1][1]
+        # name = tables[0][0].replace(" ","").replace("产品规格书","")
         for each in tables[2:]:
             if len(each)==1:
                 continue
@@ -245,6 +246,6 @@ class MyPDFPlumberLoader(PDFPlumberLoader):
 
 
 if __name__ == '__main__':
-    parse = MyPDFPlumberLoader(file_path=r"产品规格说明书_多个.pdf")
+    parse = MyPDFPlumberLoader(file_path=r"虚拟导购产品信息库.pdf")
     res=parse.load()
     print(res)

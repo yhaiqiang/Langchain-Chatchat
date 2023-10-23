@@ -57,19 +57,26 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
             temperature=temperature,
             callbacks=[callback],
         )
-        docs = search_docs(query, knowledge_base_name, top_k, score_threshold)
-
-        if "支不支持" in query:
-            query=query.replace("支不支持","支持还是不支持")
 
         product_name=""
         for h in history:
             if h.role=="user":
-                matched=re.search("(43f3|43g6a)", h.content.lower())
+                # matched=re.search("(43f3|43g6a|(55|65|75)?(r6|x3)|98c2|led86k2)", h.content.lower())
+                matched=re.search("([a-zA-Z0-9]+)", h.content.lower())
                 if matched:
                     product_name=matched.group(0)
         if product_name:
             query=f"电视产品型号为{product_name}，"+query
+
+        docs = search_docs(query, knowledge_base_name, top_k, score_threshold)
+
+        # if not docs:
+        #     yield json.dumps({"answer": "无法回答其他领域的问题"}, ensure_ascii=False)
+
+        if "支不支持" in query:
+            query=query.replace("支不支持","支持还是不支持")
+
+
 
 
         # docs_filter = []

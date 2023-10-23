@@ -10,6 +10,7 @@ from typing import List, Literal, Dict
 
 
 MODEL_VERSIONS = {
+    "ernie-bot-4": "completions_pro",
     "ernie-bot": "completions",
     "ernie-bot-turbo": "eb-instant",
     "bloomz-7b": "bloomz_7b1",

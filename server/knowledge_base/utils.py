@@ -411,7 +411,7 @@ def files2docs_in_thread(
 if __name__ == "__main__":
     from pprint import pprint
 
-    kb_file = KnowledgeFile(filename="产品规格说明书_多个.pdf", knowledge_base_name="寿军提供产品规格书_多个产品一份文档")
+    kb_file = KnowledgeFile(filename="虚拟导购产品信息库.pdf", knowledge_base_name="虚拟导购知识库")
     # kb_file.text_splitter_name = "RecursiveCharacterTextSplitter"
     docs = kb_file.file2docs()
     pprint(docs[-1])
