@@ -19,9 +19,9 @@ from urllib.parse import urlencode
 from server.knowledge_base.kb_doc_api import search_docs, search_by_knowl_dict
 
 from sse_starlette.sse import EventSourceResponse
+from loguru import logger
 
-
-async def knowledge_base_chat(query: str = Body(..., description="用户输入", examples=["你好"]),
+async def knowledge_base_chat2(query: str = Body(..., description="用户输入", examples=["你好"]),
                             knowledge_base_name: str = Body(..., description="知识库名称", examples=["samples"]),
                             top_k: int = Body(VECTOR_SEARCH_TOP_K, description="匹配向量数"),
                             score_threshold: float = Body(SCORE_THRESHOLD, description="知识库匹配相关度阈值，取值范围在0-1之间，SCORE越小，相关度越高，取到1相当于不筛选，建议设置在0.5左右", ge=0, le=1),
@@ -39,6 +39,7 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
                             max_tokens: int = Body(None, description="限制LLM生成Token数量，默认None代表模型最大值"),
                             prompt_name: str = Body("default", description="使用的prompt模板名称(在configs/prompt_config.py中配置)"),
                         ):
+    model_name='chatglm2-6b'
     kb = KBServiceFactory.get_service_by_name(knowledge_base_name)
     if kb is None:
         return BaseResponse(code=404, msg=f"未找到知识库 {knowledge_base_name}")
@@ -107,6 +108,7 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
 
         if not docs:
             yield json.dumps({"answer": "知识库暂无此信息，无法回答该问题"}, ensure_ascii=False)
+            yield json.dumps({"answer": "DONE"}, ensure_ascii=False)
             return  # 停止后续处理
 
         if "支不支持" in query:
@@ -154,6 +156,7 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
             async for token in callback.aiter():
                 # Use server-sent-events to stream the response
                 yield json.dumps({"answer": token}, ensure_ascii=False)
+            yield json.dumps({"answer": "DONE"}, ensure_ascii=False)
             yield json.dumps({"docs": source_documents}, ensure_ascii=False)
         else:
             answer = ""
@@ -165,13 +168,13 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
 
         await task
 
-    return StreamingResponse(knowledge_base_chat_iterator(query=query,
-    # return EventSourceResponse(knowledge_base_chat_iterator(query=query,
+    # return StreamingResponse(knowledge_base_chat_iterator(query=query,
+    return EventSourceResponse(knowledge_base_chat_iterator(query=query,
                                                           top_k=top_k,
                                                           history=history,
                                                           model_name=model_name,
                                                           prompt_name=prompt_name),
-                             media_type="text/event-stream")
+                                                          media_type="text/event-stream")
 
 def load_knowl_dict(file_path):
     with open(file_path, encoding="utf-8") as json_file:

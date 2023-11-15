@@ -5,6 +5,7 @@
 # @Software: PyCharm
 import copy
 import json
+import os.path
 import re
 
 import pdfplumber
@@ -189,10 +190,14 @@ class MyPDFPlumberParser(PDFPlumberParser):
 
 class MyPDFPlumberParser2(PDFPlumberParser):
     def extract_content(self, page):
-        tables = page.extract_tables(table_settings={"vertical_strategy": "lines", "snap_tolerance": 10,"horizontal_strategy": "lines"})[0]
+        # tables = page.extract_tables(table_settings={"vertical_strategy": "lines", "snap_tolerance": 10,"horizontal_strategy": "lines"})[0]
+        tables = page.extract_tables()[0]
         tables=[list(filter(lambda x: x is not None and x != "",each)) for each in tables]
         tables_filter=[]
-        name = tables[1][1]
+        for x in tables:
+            if "型号" in x or "功能/机型" in x:
+                name = x[-1]
+                break
         # name = tables[0][0].replace(" ","").replace("产品规格书","")
         for each in tables[2:]:
             if len(each)==1:
@@ -215,13 +220,18 @@ class MyPDFPlumberParser2(PDFPlumberParser):
                     text = name+text
                     text = text.replace("\n", "")
                     tables_filter.append(text)
-        return "\n\n".join(tables_filter)
+        return "\n".join(tables_filter)
 
     def lazy_parse(self, blob: Blob):
         """Lazily parse the blob."""
         import pdfplumber
 
         with blob.as_bytes_io() as file_path:
+            dirname=os.path.dirname(os.path.dirname(self.text_kwargs["file_path"]))
+            basename=os.path.basename(self.text_kwargs["file_path"])
+            file_prefix, file_extension = os.path.splitext(basename)
+            out = open(os.path.join(dirname,file_prefix + '_convert.txt'),"w",encoding="utf-8")
+
             doc = pdfplumber.open(file_path)  # open document
 
             page_doc = []
@@ -229,16 +239,21 @@ class MyPDFPlumberParser2(PDFPlumberParser):
             for i, page in enumerate(doc.pages):
                 page_content = self.extract_content(page)
                 print(page_content)
+                out.write(page_content+"\n")
                 metadata = dict({"source": blob.source, "file_path": blob.source, "page": page.page_number,"total_pages": len(doc.pages)},**{k: doc.metadata[k] for k in doc.metadata if type(doc.metadata[k]) in [str, int]})
                 doc_object=Document(page_content=page_content, metadata=metadata)
                 page_doc.append(doc_object)
                 print(f"--------------分页线{i+1}-------------")
+                out.write(f"--------------分页线{i+1}-------------"+"\n")
+
+            out.close()
             yield from page_doc
 
 
 class MyPDFPlumberLoader(PDFPlumberLoader):
         """ """
         def load(self):
+                self.text_kwargs.update({"file_path":self.file_path})
                 parser =MyPDFPlumberParser2(text_kwargs=self.text_kwargs)
                 blob = Blob.from_path(self.file_path)
                 return parser.parse(blob)
@@ -246,6 +261,6 @@ class MyPDFPlumberLoader(PDFPlumberLoader):
 
 
 if __name__ == '__main__':
-    parse = MyPDFPlumberLoader(file_path=r"虚拟导购产品信息库.pdf")
+    parse = MyPDFPlumberLoader(file_path=r"/root/Projects/Langchain-Chatchat/knowledge_base/虚拟导购知识库/content/虚拟导购产品信息库1026.pdf")
     res=parse.load()
     print(res)

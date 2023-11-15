@@ -145,7 +145,7 @@ def dialogue_page(api: ApiRequest):
             return x
 
         running_models = list(api.list_running_models())
-        running_models += LANGCHAIN_LLM_MODEL.keys()
+        # running_models += LANGCHAIN_LLM_MODEL.keys()
         available_models = []
         config_models = api.list_config_models()
         worker_models = list(config_models.get("worker", {}))  # 仅列出在FSCHAT_MODEL_WORKERS中配置的模型
@@ -156,6 +156,8 @@ def dialogue_page(api: ApiRequest):
             if not v.get("provider") and k not in running_models:
                 available_models.append(k)
         for k, v in config_models.get("langchain", {}).items():  # 列出LANGCHAIN_LLM_MODEL支持的模型
+            available_models.append(k)
+        for k, v in config_models.get("local", {}).items():  # 列出支持的local模型
             available_models.append(k)
         llm_models = running_models + available_models
         index = llm_models.index(st.session_state.get("cur_llm_model", get_default_llm_model(api)[0]))

@@ -1,4 +1,5 @@
 import os
+import random
 import urllib
 from fastapi import File, Form, Body, Query, UploadFile
 from configs import (DEFAULT_VS_TYPE, EMBEDDING_MODEL,
@@ -15,11 +16,28 @@ from server.knowledge_base.kb_service.base import KBServiceFactory
 from server.db.repository.knowledge_file_repository import get_file_detail
 from typing import List, Dict
 from langchain.docstore.document import Document
-
+from server.knowledge_base.bm25 import retrieve_documents
+import Levenshtein
 
 class DocumentWithScore(Document):
     score: float = None
 
+def search_by_knowl_dict(query,knowl_dict):
+    document=list(knowl_dict.keys())
+    doc_scores=retrieve_documents(query,document)#返回id和分数组成的数组，再组成列表
+    tmp=[]
+    docs=[]
+    for id,score in doc_scores[:5]:
+        distance = Levenshtein.distance(query, document[id])
+        similarity = 1 - (distance / max(len(query), len(document[id])))
+        if similarity>=0.45 and knowl_dict[document[id]]["knowl_id"] not in tmp:
+            one_ans=random.choice(knowl_dict[document[id]]["answer"])
+            tmp.append(knowl_dict[document[id]]["knowl_id"])
+            docs.append((Document(page_content=one_ans, metadata={"source":"虚拟导购问答库.csv"}),similarity))
+
+    data = [DocumentWithScore(**x[0].dict(), score=x[1]) for x in docs]
+    print(data)
+    return data
 
 def search_docs(query: str = Body(..., description="用户输入", examples=["你好"]),
                 knowledge_base_name: str = Body(..., description="知识库名称", examples=["samples"]),

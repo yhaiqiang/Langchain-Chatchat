@@ -12,7 +12,7 @@ import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import RedirectResponse
 from server.chat import (chat, knowledge_base_chat, openai_chat,
-                         search_engine_chat, agent_chat)
+                         search_engine_chat, agent_chat, knowledge_base_chat2)
 from server.knowledge_base.kb_api import list_kbs, create_kb, delete_kb
 from server.knowledge_base.kb_doc_api import (list_files, upload_docs, delete_docs,
                                               update_docs, download_doc, recreate_vector_store,
@@ -22,6 +22,7 @@ from server.llm_api import (list_running_models, list_config_models,
                             get_model_config, list_search_engines)
 from server.utils import BaseResponse, ListResponse, FastAPI, MakeFastAPIOffline, get_server_configs
 from typing import List
+from loguru import logger
 
 nltk.data.path = [NLTK_DATA_PATH] + nltk.data.path
 
@@ -64,6 +65,10 @@ def create_app():
     app.post("/chat/knowledge_base_chat",
              tags=["Chat"],
              summary="与知识库对话")(knowledge_base_chat)
+
+    app.post("/chat/knowledge_base_chat2",
+             tags=["Chat"],
+             summary="与知识库对话2")(knowledge_base_chat2)
 
     app.post("/chat/search_engine_chat",
              tags=["Chat"],
@@ -201,6 +206,7 @@ if __name__ == "__main__":
     parser.add_argument("--ssl_certfile", type=str)
     # 初始化消息
     args = parser.parse_args()
+    logger.info(args)
     args_dict = vars(args)
     run_api(host=args.host,
             port=args.port,
