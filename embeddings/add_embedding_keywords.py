@@ -70,7 +70,8 @@ def add_keyword_to_model(model_name=EMBEDDING_MODEL, keyword_file: str = "", out
 
 def add_keyword_to_embedding_model(path: str = EMBEDDING_KEYWORD_FILE):
     keyword_file = os.path.join(path)
-    model_name = MODEL_PATH["embed_model"][EMBEDDING_MODEL]
+    # model_name = MODEL_PATH["embed_model"][EMBEDDING_MODEL]
+    model_name = "/data/workspace/haiqiang/model_zoo/bge-large-zh-v1.5/"
     model_parent_directory = os.path.dirname(model_name)
     current_time = datetime.now().strftime('%Y%m%d_%H%M%S')
     output_model_name = "{}_Merge_Keywords_{}".format(EMBEDDING_MODEL, current_time)

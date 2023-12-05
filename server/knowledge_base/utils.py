@@ -72,7 +72,7 @@ def list_files_from_folder(kb_name: str):
 LOADER_DICT = {"UnstructuredHTMLLoader": ['.html'],
                "UnstructuredMarkdownLoader": ['.md'],
                "CustomJSONLoader": [".json"],
-               "CSVLoader": [".csv"],
+               # "CSVLoader": [".csv"],
                # "FilteredCSVLoader": [".csv"], # 需要自己指定，目前还没有支持
                # "RapidOCRPDFLoader": [".pdf"],
                "RapidOCRLoader": ['.png', '.jpg', '.jpeg', '.bmp'],
@@ -177,6 +177,15 @@ def get_loader(loader_name: str, file_path_or_content: Union[str, bytes, io.Stri
 
         loader = DocumentLoader(file_path_or_content, encoding=encode_detect["encoding"])
         ## TODO：支持更多的自定义CSV读取逻辑
+
+    elif loader_name == "MyCSVLoader":
+        # 自动识别文件编码类型，避免langchain loader 加载文件报编码错误
+        with open(file_path_or_content, 'rb') as struct_file:
+            encode_detect = chardet.detect(struct_file.read())
+        if encode_detect is None:
+            encode_detect = {"encoding": "utf-8"}
+
+        loader = DocumentLoader(file_path_or_content, encoding=encode_detect["encoding"])
 
     elif loader_name == "JSONLoader":
         loader = DocumentLoader(file_path_or_content, jq_schema=".", text_content=False)

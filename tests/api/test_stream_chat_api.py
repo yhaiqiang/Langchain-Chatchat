@@ -72,16 +72,16 @@ def test_knowledge_chat(api="/chat/knowledge_base_chat"):
     url = f"{api_base_url}{api}"
     data = {
         "query": "如何提问以获得高质量答案",
-        "knowledge_base_name": "产品规格书",
+        "knowledge_base_name": "虚拟导购知识库",
         "history": [
-            {
-                "role": "user",
-                "content": "你好"
-            },
-            {
-                "role": "assistant",
-                "content": "你好，我是 ChatGLM"
-            }
+            # {
+            #     "role": "user",
+            #     "content": "你好"
+            # },
+            # {
+            #     "role": "assistant",
+            #     "content": "你好，我是 ChatGLM"
+            # }
         ],
         "stream": True
     }

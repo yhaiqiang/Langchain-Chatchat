@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3,4,5,6,7"
+os.environ["CUDA_VISIBLE_DEVICES"]="1,2,3,4,5,6,7"
 
 import asyncio
 import multiprocessing as mp
@@ -9,6 +9,9 @@ import sys
 from multiprocessing import Process
 from datetime import datetime
 from pprint import pprint
+import ray, torch
+
+
 
 
 # 设置numexpr最大线程数，默认为CPU核心数
@@ -107,7 +110,7 @@ def create_model_worker_app(log_level: str = "INFO", **kwargs) -> FastAPI:
         from configs.model_config import VLLM_MODEL_DICT
         if kwargs["model_names"][0] in VLLM_MODEL_DICT and args.infer_turbo == "vllm":
             import fastchat.serve.vllm_worker
-            from fastchat.serve.vllm_worker import VLLMWorker, app
+            from fastchat.serve.vllm_worker import VLLMWorker, app,worker_id
             from vllm import AsyncLLMEngine
             from vllm.engine.arg_utils import AsyncEngineArgs,EngineArgs
 
@@ -130,7 +133,7 @@ def create_model_worker_app(log_level: str = "INFO", **kwargs) -> FastAPI:
             args.conv_template = None
             args.limit_worker_concurrency = 5
             args.no_register = False
-            args.num_gpus = 4 # vllm worker的切分是tensor并行，这里填写显卡的数量
+            args.num_gpus = 2 # vllm worker的切分是tensor并行，这里填写显卡的数量
             args.engine_use_ray = False
             args.disable_log_requests = False
 
@@ -164,7 +167,7 @@ def create_model_worker_app(log_level: str = "INFO", **kwargs) -> FastAPI:
                         conv_template = args.conv_template,
                         )
             sys.modules["fastchat.serve.vllm_worker"].engine = engine
-            # sys.modules["fastchat.serve.vllm_worker"].worker = worker
+            sys.modules["fastchat.serve.vllm_worker"].worker = worker
             sys.modules["fastchat.serve.vllm_worker"].logger.setLevel(log_level)
 
         else:
@@ -451,6 +454,8 @@ def run_webui(started_event: mp.Event = None, run_mode: str = None):
     cmd = ["streamlit", "run", "webui.py",
             "--server.address", host,
             "--server.port", str(port),
+           "--browser.serverAddress", "0.0.0.0",
+           "--server.headless","true",
             "--theme.base", "light",
             "--theme.primaryColor", "#165dff",
             "--theme.secondaryBackgroundColor", "#f5f5f5",

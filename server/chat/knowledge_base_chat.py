@@ -1,7 +1,9 @@
+import csv
 from pprint import pprint
-
+from jinja2 import Template
 from fastapi import Body, Request
 import re
+import  time
 from fastapi.responses import StreamingResponse
 from configs import (LLM_MODELS, VECTOR_SEARCH_TOP_K, SCORE_THRESHOLD, TEMPERATURE)
 from server.utils import wrap_done, get_ChatOpenAI
@@ -18,6 +20,11 @@ import json
 from pathlib import Path
 from urllib.parse import urlencode
 from server.knowledge_base.kb_doc_api import search_docs
+# from modelscope.pipelines import pipeline
+# from modelscope.utils.constant import Tasks
+
+# pipeline_ins = pipeline(task=Tasks.text2text_generation, model='damo/nlp_mt5_dialogue-rewriting_chinese-base', model_revision='v1.0.1')
+tmp_dict = {}
 
 
 async def knowledge_base_chat(query: str = Body(..., description="用户输入", examples=["你好"]),
@@ -43,6 +50,11 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
     if kb is None:
         return BaseResponse(code=404, msg=f"未找到知识库 {knowledge_base_name}")
 
+    with open("/home/haiqiang/Projects/Langchain-Chatchat/knowledge_base/虚拟导购知识库/knowl.json") as f:
+        line_dict={}
+        for x in f:
+            line_dict.update(json.loads(x))
+
     history = [History.from_data(h) for h in history]
 
     async def knowledge_base_chat_iterator(query: str,
@@ -51,35 +63,103 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
                                            model_name: str = LLM_MODELS[0],
                                            prompt_name: str = prompt_name,
                                            ) -> AsyncIterable[str]:
-        callback = AsyncIteratorCallbackHandler()
-        model = get_ChatOpenAI(
-            model_name=model_name,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            callbacks=[callback],
-        )
 
-        product_name=""
-        product_name_asistant=""
-        for h in history:
-            if h.role=="assistant":
-            #     matched=re.search("(43f3|43g6a|(55|65|75)?(r6|x3)|98c2|led86k2|65r6|55g5u)", h.content.lower())
-            #     # matched=re.search("([a-zA-Z0-9]+)", h.content.lower())
-            #     if matched:
-            #         product_name_asistant=matched.group(0)
-                h.content=re.sub("{.*?}","",h.content)
-            if h.role=="user":
-                matched=re.search("(43f3|43g6a|(55|65|75)?(r6|x3)|98c2|led86k2|65r6|55g5u)", h.content.lower())
-                # matched=re.search("([a-zA-Z0-9]+)", h.content.lower())
-                if matched:
-                    product_name=matched.group(0)
-        if not product_name:
-            product_name=product_name_asistant
-        if product_name:
-            query=f"产品型号{product_name}"+query
-            # query="product_name"+query
+        # query改写
+        # product_name=""
+        # product_name_asistant=""
+        # for h in history:
+        #     if h.role=="assistant":
+        #     #     matched=re.search("(43f3|43g6a|(55|65|75)?(r6|x3)|98c2|led86k2|65r6|55g5u)", h.content.lower())
+        #     #     # matched=re.search("([a-zA-Z0-9]+)", h.content.lower())
+        #     #     if matched:
+        #     #         product_name_asistant=matched.group(0)
+        #         h.content=re.sub("{.*?}","",h.content)
+        #     if h.role=="user":
+        #         matched=re.search("(43f3|43g6a|(55|65|75)?(r6|x3)|98c2|led86k2|65r6|55g5u)", h.content.lower())
+        #         # matched=re.search("([a-zA-Z0-9]+)", h.content.lower())
+        #         if matched:
+        #             product_name=matched.group(0)
+        # if not product_name:
+        #     product_name=product_name_asistant
+        # if product_name:
+        #     query=f"产品型号{product_name}"+query
+        #     # query="product_name"+query
 
-        docs = search_docs(query, knowledge_base_name, top_k, score_threshold)
+        # 首先对原问题进行检索
+        t0=time.time()
+        docs = search_docs(query, knowledge_base_name, top_k, score_threshold) #返回的是DocumentWithScore对象
+        print("向量匹配时间：",time.time()-t0)
+        pprint(docs)
+
+        # 如果没有历史会话且原问题未检索到答案则将问题改写后再进行检索
+        if history and not docs:
+            t0 = time.time()
+            callback = AsyncIteratorCallbackHandler()
+            model = get_ChatOpenAI(
+                model_name=model_name,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                callbacks=[callback],
+            )
+            prompt_template = get_prompt_template("knowledge_base_chat", "query_rewrite")
+            input_msg = History(role="user", content=prompt_template).to_msg_template(False)
+            chat_prompt = ChatPromptTemplate.from_messages(
+                # [i.to_msg_template() for i in history] +
+                [input_msg])
+            chain = LLMChain(prompt=chat_prompt, llm=model)
+
+            context = ""
+            # context = []
+            for h in history:
+                # context.append({"role":h.role,"content":h.content})
+                if h.role == "user":
+                    context +=  h.content + "[SEP]"
+                if h.role == "assistant":
+                    context += h.content + "[SEP]"
+            # context+=query
+            context=json.dumps(context,ensure_ascii=False)
+            pprint("原始上下文：" + str(context))
+            for k, v in tmp_dict.items():
+                context = context.replace(k, v)
+            pprint("替换后的上下文：" + context)
+
+            _task = asyncio.create_task(wrap_done(
+                chain.acall({"context": context,"question":query}),
+                callback.done),
+            )
+            _answer = ""
+            async for token in callback.aiter():
+                _answer += token
+            await _task
+            pprint("改写后的结果:"+ _answer)
+            _answer=_answer.replace("输出:","").replace("输出：","")
+            tmp_dict[query] = _answer
+            query = _answer
+            print("改写消耗时间：",time.time()-t0)
+
+            docs = search_docs(query, knowledge_base_name, top_k, score_threshold) #返回的是DocumentWithScore对象
+
+
+
+        # 将召回的问题替换为对应的答案:
+        answer_id=[]
+        docs_new=[]
+        for doc in docs:
+            if doc.page_content in line_dict and line_dict[doc.page_content]["知识库ID"] not in answer_id:
+                answer_id.append(line_dict[doc.page_content]["知识库ID"])
+                doc.page_content=line_dict[doc.page_content]["回答1"]+";"+line_dict[doc.page_content]["回答2"]
+                docs_new.append(doc)
+        docs=docs_new if docs_new else docs
+        pprint(docs)
+
+        # 过滤出置信度比较高的召回的文档
+        docs_new=[]
+        docs=sorted(docs,key=lambda x:x.score,reverse=False)
+        if docs and docs[0].score<=0.2:
+            docs_new.append(docs[0])
+        docs=docs_new if docs_new else docs
+
+        # csv文件解析成字典格式的的文本提取出对应的字段
         docs_filter=[]
         for doc in docs:
             text=doc.page_content
@@ -99,18 +179,14 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
                             ans_list.append(ans_text)
                 doc.page_content="\n".join(ans_list)
 
-
         # docs = search_by_knowl_dict(query, knowl_dict)
-
-        if not docs:
-            yield json.dumps({"answer": "知识库暂无此信息，无法回答该问题"}, ensure_ascii=False)
-            return  # 停止后续处理
-
-        if "支不支持" in query:
-            query=query.replace("支不支持","支持还是不支持")
-
-
-
+        #
+        # if not docs:
+        #     yield json.dumps({"answer": "知识库暂无此信息，无法回答该问题"}, ensure_ascii=False)
+        #     return  # 停止后续处理
+        #
+        # if "支不支持" in query:
+        #     query=query.replace("支不支持","支持还是不支持")
 
         # docs_filter = []
         # for doc in docs:
@@ -121,15 +197,140 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
         #             docs_filter.append(doc)
         # docs = docs_filter
 
+        def mt5_rewrite(query,context):
+            # mt5模型改写
+            query = query.strip().strip("。")
+            history_content = ''
+            for i, h in enumerate(history):
+                h.content = h.content.strip().strip("。")
+                joint_symbol = "[SEP]" if i < len(history) - 1 else ""
+                history_content += h.content + joint_symbol
+            print("历史对话：", history_content)
+
+            for k, v in tmp_dict.items():
+                history_content = history_content.replace(k, v)
+            print("历史对话替换：", history_content)
+
+            history_and_current_content = history_content + "[SEP]" + query
+            print("对话改写的输入：", history_and_current_content)
+
+            query_rewrite = pipeline_ins(input=history_and_current_content).get("text", "")
+            if query_rewrite != query:
+                tmp_dict[query] = query_rewrite
+            print("对话改写的输出：", query)
+
+
+            # # 利用大模型判断是否需要进行指代消解
+            # callback = AsyncIteratorCallbackHandler()
+            # model = get_ChatOpenAI(
+            #     model_name=model_name,
+            #     temperature=temperature,
+            #     max_tokens=max_tokens,
+            #     callbacks=[callback],
+            # )
+            # prompt_template = get_prompt_template("knowledge_base_chat", "is_coreference_resolution")
+            # # template = Template(prompt_template)
+            # # result = template.render(history_content=history_content, question=question)
+            # input_msg = History(role="user", content=prompt_template).to_msg_template(False)
+            # chat_prompt = ChatPromptTemplate.from_messages(
+            #     # [i.to_msg_template() for i in history] +
+            #     [input_msg])
+            # chain = LLMChain(prompt=chat_prompt, llm=model)
+            # pprint("指代消解的prompt")
+            # pprint(chain)
+            # # Begin a task that runs in the background.
+            # _task = asyncio.create_task(wrap_done(
+            #     chain.acall({"context": context, "question": query}),
+            #     callback.done),
+            # )
+            # _answer = ""
+            # async for token in callback.aiter():
+            #     _answer += token
+            # await _task
+            # print("是否指代消解的结果", _answer)
+            #
+            #
+            # # 利用大模型结合历史对话改写当下的问题
+            # # if _answer=="1":
+            # callback = AsyncIteratorCallbackHandler()
+            # model = get_ChatOpenAI(
+            #     model_name=model_name,
+            #     temperature=temperature,
+            #     max_tokens=max_tokens,
+            #     callbacks=[callback],
+            # )
+            # prompt_template = get_prompt_template("knowledge_base_chat", "query_rewrite")
+            # # template = Template(prompt_template)
+            # # result = template.render(history_content=history_content, question=question)
+            # input_msg = History(role="user", content=prompt_template).to_msg_template(False)
+            # chat_prompt = ChatPromptTemplate.from_messages(
+            #     # [i.to_msg_template() for i in history]+
+            #     [input_msg])
+            # chain = LLMChain(prompt=chat_prompt, llm=model)
+            # pprint("query改写的prompt")
+            # pprint(chain)
+            # # Begin a task that runs in the background.
+            # _task = asyncio.create_task(wrap_done(
+            #     chain.acall({"context": context, "question": query}),
+            #     callback.done),
+            # )
+            # _answer = ""
+            # async for token in callback.aiter():
+            #     _answer += token
+            # await _task
+            # query=_answer
+            # print("query改写", _answer)
+
         context = "\n".join([doc.page_content for doc in docs])
-        if len(docs) == 0: ## 如果没有找到相关文档，使用Empty模板
-            prompt_template = get_prompt_template("knowledge_base_chat", "Empty")
-        else:
-            prompt_template = get_prompt_template("knowledge_base_chat", prompt_name)
+
+        # 先用大模型做一个意图识别
+        # callback = AsyncIteratorCallbackHandler()
+        # model = get_ChatOpenAI(
+        #     model_name=model_name,
+        #     temperature=temperature,
+        #     max_tokens=max_tokens,
+        #     callbacks=[callback],
+        # )
+        # prompt_template = get_prompt_template("knowledge_base_chat", "intent_classifier")
+        # input_msg = History(role="user", content=prompt_template).to_msg_template(False)
+        # chat_prompt = ChatPromptTemplate.from_messages(
+        #     # [i.to_msg_template() for i in history]+
+        #     [input_msg])
+        # chain = LLMChain(prompt=chat_prompt, llm=model)
+        # pprint("意图识别的prompt")
+        # pprint(chain)
+        # # Begin a task that runs in the background.
+        # _task = asyncio.create_task(wrap_done(
+        #     chain.acall({"context": context, "question": query}),
+        #     callback.done),
+        # )
+        # _answer = ""
+        # async for token in callback.aiter():
+        #     _answer += token
+        # await _task
+        # print("intent",_answer)
+
+        # if len(docs) == 0: ## 如果没有找到相关文档，使用Empty模板
+        #     # if _answer == "1":
+        #         yield json.dumps({"answer": "知识库暂无此信息，无法回答该问题"}, ensure_ascii=False)
+        #         return  # 停止后续处理
+        #     # else:
+        #     # prompt_template = get_prompt_template("knowledge_base_chat", "Empty")
+        # else:
+        prompt_template = get_prompt_template("knowledge_base_chat", prompt_name)
         input_msg = History(role="user", content=prompt_template).to_msg_template(False)
         chat_prompt = ChatPromptTemplate.from_messages(
             [i.to_msg_template() for i in history] + [input_msg])
+        pprint("知识库问答的prompt")
+        pprint(chat_prompt)
 
+        callback = AsyncIteratorCallbackHandler()#这个迭代器被上面的任务用完了，所以要重新再初始化一次
+        model = get_ChatOpenAI(
+            model_name=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            callbacks=[callback],
+        )
         chain = LLMChain(prompt=chat_prompt, llm=model)
 
         # Begin a task that runs in the background.
@@ -144,6 +345,7 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
             filename = Path(doc.metadata["source"]).resolve().relative_to(doc_path)
             parameters = urlencode({"knowledge_base_name": knowledge_base_name, "file_name":filename})
             base_url = request.base_url
+            base_url=str(base_url).replace("127.0.0.1","172.19.11.1")
             url = f"{base_url}knowledge_base/download_doc?" + parameters
             text = f"""出处 [{inum + 1}] [{filename}]({url}) \n\n{doc.page_content}\n\n"""
             source_documents.append(text)
@@ -165,12 +367,15 @@ async def knowledge_base_chat(query: str = Body(..., description="用户输入",
                              ensure_ascii=False)
         await task
 
+
     return StreamingResponse(knowledge_base_chat_iterator(query=query,
                                                           top_k=top_k,
                                                           history=history,
                                                           model_name=model_name,
                                                           prompt_name=prompt_name),
                              media_type="text/event-stream")
+
+
 def load_knowl_dict(file_path):
     with open(file_path, encoding="utf-8") as json_file:
         knowl_dict = json.load(json_file)
