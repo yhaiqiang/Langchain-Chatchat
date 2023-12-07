@@ -15,15 +15,10 @@ import asyncio
 from langchain.prompts.chat import ChatPromptTemplate
 from server.chat.utils import History
 from server.knowledge_base.kb_service.base import KBServiceFactory
-from server.knowledge_base.utils import get_doc_path
 import json
-from pathlib import Path
 from urllib.parse import urlencode
 from server.knowledge_base.kb_doc_api import search_docs
-# from modelscope.pipelines import pipeline
-# from modelscope.utils.constant import Tasks
 
-# pipeline_ins = pipeline(task=Tasks.text2text_generation, model='damo/nlp_mt5_dialogue-rewriting_chinese-base', model_revision='v1.0.1')
 tmp_dict = {}
 
 
