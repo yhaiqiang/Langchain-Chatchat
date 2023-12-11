@@ -70,3 +70,4 @@ watchdog>=3.0.0
 
 spacy
 pypdf
+elasticsearch
